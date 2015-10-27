@@ -23,7 +23,7 @@ func createMgoStorage() *MgoDataStorage {
 func TestInsertUser(t *testing.T) {
 	mongo := createMgoStorage()
 	defer cleanUp(mongo)
-	user := &User{
+	user := User{
 		Id:         bson.NewObjectId(),
 		Email:      "sohlich@example.com",
 		Password:   "ABCDEF",
@@ -44,19 +44,19 @@ func TestInsertUser(t *testing.T) {
 func TestInsertMultiple(t *testing.T) {
 	mongo := createMgoStorage()
 	defer cleanUp(mongo)
-	user := &User{
+	user := User{
 		Id:         bson.NewObjectId(),
 		Email:      "sohlich@example.com",
 		Password:   "ABCDEF",
 		Expiration: time.Now().Unix(),
 		LastAccess: time.Now().Unix(),
 	}
+
 	err := mongo.InsertUser(user)
 	if err != nil {
 		t.Error(err)
 	}
 	err = mongo.InsertUser(user)
-	log.Println(err.Error())
 	if err == nil {
 		t.Error("Unique index not working")
 	}
@@ -66,7 +66,7 @@ func TestInsertMultiple(t *testing.T) {
 func TestUserByEmail(t *testing.T) {
 	mongo := createMgoStorage()
 	defer cleanUp(mongo)
-	user := &User{
+	user := User{
 		Id:         bson.NewObjectId(),
 		Email:      "sohlich@example.com",
 		Password:   "ABCDEF",
@@ -88,7 +88,7 @@ func TestUserByEmail(t *testing.T) {
 		return
 	}
 
-	match := user.Equals(userByEmail)
+	match := user.Equals(&userByEmail)
 	if !match {
 		t.Error("Users not match")
 	}
@@ -97,7 +97,7 @@ func TestUserByEmail(t *testing.T) {
 func TestDeleteUser(t *testing.T) {
 	mongo := createMgoStorage()
 	defer cleanUp(mongo)
-	user := &User{
+	user := User{
 		Id:         bson.NewObjectId(),
 		Email:      "sohlich@example.com",
 		Password:   "ABCDEF",
@@ -117,4 +117,126 @@ func TestDeleteUser(t *testing.T) {
 	if err == nil && count != 0 {
 		t.Error("User not deleted")
 	}
+}
+
+func TestInsertToken(t *testing.T) {
+	mongo := createMgoStorage()
+	defer cleanUp(mongo)
+	user := User{
+		Id:         bson.NewObjectId(),
+		Email:      "sohlich@example.com",
+		Password:   "ABCDEF",
+		Expiration: time.Now().Unix(),
+		LastAccess: time.Now().Unix(),
+	}
+	tokenString, tokenErr := generateJwtToken(user)
+	if tokenErr != nil {
+		t.Error(tokenErr)
+	}
+
+	//TODO create token and short token
+	token := Token{}
+	token.JwtToken = tokenString
+	token.Email = user.Email
+	token.RefToken = "1234"
+	token.Expiration = time.Now().Add(time.Hour * 72).Unix()
+	err := mongo.InsertToken(token)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	count, err := mongo.mgoTokens.Count()
+	if err == nil && count != 1 {
+		t.Error("Token not inserted")
+		return
+	}
+}
+
+func TestTokenByEmail(t *testing.T) {
+	mongo := createMgoStorage()
+	defer cleanUp(mongo)
+	user := User{
+		Id:         bson.NewObjectId(),
+		Email:      "sohlich@example.com",
+		Password:   "ABCDEF",
+		Expiration: time.Now().Unix(),
+		LastAccess: time.Now().Unix(),
+	}
+	tokenString, tokenErr := generateJwtToken(user)
+	if tokenErr != nil {
+		t.Error(tokenErr)
+	}
+
+	//TODO create token and short token
+	token := Token{}
+	token.JwtToken = tokenString
+	token.Email = user.Email
+	token.RefToken = "1234"
+	token.Expiration = time.Now().Add(time.Hour * 72).Unix()
+	err := mongo.InsertToken(token)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	selToken, selErr := mongo.TokenByEmail(user.Email)
+	if selErr != nil && selToken.RefToken == token.RefToken {
+		t.Error(selErr)
+		return
+	}
+	selToken, selErr = mongo.TokenByRefToken(token.RefToken)
+	if selErr != nil {
+		t.Error(selErr)
+		return
+	}
+	if selToken.JwtToken != token.JwtToken {
+		t.Error("Token not match")
+	}
+}
+
+func TestInvalidateToken(t *testing.T) {
+	mongo := createMgoStorage()
+	defer cleanUp(mongo)
+	user := User{
+		Id:         bson.NewObjectId(),
+		Email:      "sohlich@example.com",
+		Password:   "ABCDEF",
+		Expiration: time.Now().Unix(),
+		LastAccess: time.Now().Unix(),
+	}
+	tokenString, tokenErr := generateJwtToken(user)
+	if tokenErr != nil {
+		t.Error(tokenErr)
+	}
+
+	//TODO create token and short token
+	token := Token{}
+	token.JwtToken = tokenString
+	token.Email = user.Email
+	token.RefToken = "1234"
+	token.Expiration = time.Now().Add(time.Hour * 72).Unix()
+	err := mongo.InsertToken(token)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	count, err := mongo.mgoTokens.Count()
+	if err == nil && count != 1 {
+		t.Error("Token not inserted")
+		return
+	}
+
+	mongo.InvalidateAllByEmail(token.Email)
+	selToken, selErr := mongo.TokenByRefToken(token.RefToken)
+	if selErr != nil {
+		t.Error(selErr)
+		return
+	}
+
+	now := time.Now()
+
+	if !(selToken.Expiration <= now.Unix()) {
+		log.Printf("Expiration %d now is %d", selToken.Expiration, now.Unix())
+		t.Error("Token not updated")
+	}
+
 }

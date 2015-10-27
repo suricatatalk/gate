@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
-	"github.com/satori/go.uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -53,7 +52,7 @@ type MgoAuthProvider struct {
 	store DataStorage
 }
 
-func (m *MgoAuthProvider) SignUp(user *User) error {
+func (m *MgoAuthProvider) SignUp(user User) error {
 	var err error
 	user.Password, err = encryptPassword(user.Password)
 	err = m.store.InsertUser(user)
@@ -69,21 +68,18 @@ func (m *MgoAuthProvider) SignIn(email, password string) (string, error) {
 	err = verifyUser(user, password)
 
 	token, _ := m.store.TokenByEmail(email)
-	if token != nil && token.Expiration < now.Unix() {
+	if token.Email != "" && token.Expiration < now.Unix() {
 		return token.RefToken, nil
 	}
 
 	tokenString, tokenErr := generateJwtToken(user)
 
 	if tokenErr != nil {
-		return "", err
+		return "", tokenErr
 	}
 
 	//TODO create token and short token
-	token.JwtToken = tokenString
-	token.Email = user.Email
-	token.RefToken = uuid.NewV4().String()
-	token.Expiration = now.Add(time.Hour * 72).Unix()
+	token = NewToken(user, tokenString)
 	err = m.store.InsertToken(token)
 	if err != nil {
 		return "", err
@@ -102,7 +98,7 @@ func (m *MgoAuthProvider) SignOut(refToken string) error {
 
 func (m *MgoAuthProvider) ValueToken(refToken string) (string, error) {
 	token, err := m.store.TokenByRefToken(refToken)
-	if err != nil && token != nil {
+	if err != nil && token.Email != "" {
 		return "", err
 	} else {
 		tokenString := token.JwtToken
@@ -131,7 +127,7 @@ func encryptPassword(password string) (string, error) {
 	return output, err
 }
 
-func generateJwtToken(user *User) (string, error) {
+func generateJwtToken(user User) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 	token.Claims[JwtUserKey] = user
 	token.Claims[JwtExpKey] = time.Now().Add(time.Hour * 72).Unix()
@@ -156,8 +152,8 @@ func decodeJwtToken(token string) (*User, error) {
 
 }
 
-func verifyUser(user *User, password string) error {
-	if user == nil {
+func verifyUser(user User, password string) error {
+	if user.Email == "" {
 		return ErrUserNotFound
 	}
 	if !(user.Expiration < time.Now().Unix()) {
