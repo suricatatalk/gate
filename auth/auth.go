@@ -31,10 +31,10 @@ type AuthBouncer interface {
 }
 
 type AuthProvider interface {
-	SignUp(user *User) error
+	SignUp(user User) error
 	SignIn(email, password string) (string, error)
 	SignOut(refToken string) error
-	ReferenceToken(email string) (string, error)
+	// ReferenceToken(email string) (string, error)
 	ValueToken(refToken string) (string, error)
 }
 
@@ -134,7 +134,7 @@ func generateJwtToken(user User) (string, error) {
 	return token.SignedString([]byte(JwtSecret))
 }
 
-func decodeJwtToken(token string) (*User, error) {
+func DecodeJwtToken(token string) (*User, error) {
 	outToken, err := jwt.Parse(token, func(tkn *jwt.Token) (interface{}, error) {
 		expirate, ok := tkn.Claims[JwtExpKey].(float64)
 		if !ok || expirate < float64(time.Now().Unix()) {

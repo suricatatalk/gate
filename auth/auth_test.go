@@ -34,7 +34,7 @@ func TestJwtToken(t *testing.T) {
 		return
 	}
 
-	outputUser, decodeErr := decodeJwtToken(token)
+	outputUser, decodeErr := DecodeJwtToken(token)
 	if decodeErr != nil {
 		t.Error(decodeErr)
 	}
