@@ -10,6 +10,7 @@ import (
 
 	"github.com/sohlich/etcd_discovery"
 	"github.com/sohlich/surikata_auth/auth"
+	"github.com/yhat/wsutil"
 )
 
 const (
@@ -42,19 +43,17 @@ func main() {
 
 	authProvider = auth.NewAuthProvider(mgoStorage)
 
+	wsproxy := &wsutil.ReverseProxy{
+		Director: schemeDirector("ws://"),
+	}
+
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			transformToken(req)
-			req.URL.Scheme = "http"
-			path := req.URL.Path
-			sq, err := extractServiceName(path)
-			if err != nil {
-				return //TODO route on 404
-			}
-			servicePath, _ := registryClient.ServicesByName(sq.Service)
-			req.URL.Path = sq.Query
-			req.URL.Host = servicePath[0]
-		},
+		Director: schemeDirector("http"),
+	}
+
+	multiProxy := &MultiProxy{
+		wsproxy,
+		proxy,
 	}
 
 	//Handle login and register
@@ -62,8 +61,39 @@ func main() {
 	mux.HandleFunc("/login", loginHandler)
 	mux.HandleFunc("/register", registerHandler)
 	//else handle via proxy
-	mux.Handle("/", proxy)
+	mux.Handle("/", multiProxy)
 	http.ListenAndServe(":7070", mux)
+}
+
+type MultiProxy struct {
+	ws   *wsutil.ReverseProxy
+	http *httputil.ReverseProxy
+}
+
+func (m *MultiProxy) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+	if wsutil.IsWebSocketRequest(r) {
+		m.ws.ServeHTTP(rw, r)
+	} else {
+		m.http.ServeHTTP(rw, r)
+	}
+
+}
+
+func schemeDirector(scheme string) func(req *http.Request) {
+	return func(req *http.Request) {
+		log.Printf("Getting request headers {}", req.Header)
+		transformToken(req)
+		req.URL.Scheme = scheme
+		path := req.URL.Path
+		sq, err := extractServiceName(path)
+		if err != nil {
+			return //TODO route on 404
+		}
+		servicePath, _ := registryClient.ServicesByName(sq.Service)
+		req.URL.Path = sq.Query
+		req.URL.Host = servicePath[0]
+		log.Printf("Output URL {}", req.URL)
+	}
 }
 
 type serviceAndQuery struct {
