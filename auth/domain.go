@@ -18,6 +18,7 @@ var (
 //to hold user data
 type User struct {
 	Id         bson.ObjectId `bson:"_id"`
+	UserID     string
 	Email      string
 	Password   string
 	Expiration int64
@@ -93,8 +94,8 @@ type DataStorage interface {
 }
 
 type MgoDataStorage struct {
-	connectionString string
-	database         string
+	ConnectionString string
+	Database         string
 	users            string
 	tokens           string
 	mgoSession       *mgo.Session
@@ -105,18 +106,8 @@ type MgoDataStorage struct {
 
 func NewMgoStorage() *MgoDataStorage {
 	return &MgoDataStorage{
-		connectionString: "localhost:27017",
-		database:         "surikata_auth",
-		users:            "users",
-		tokens:           "sessions",
-	}
-
-}
-
-func NewMgoStorageConnectionAndDatabase(connString, database string) *MgoDataStorage {
-	return &MgoDataStorage{
-		connectionString: "localhost:27017",
-		database:         "surikata_auth",
+		ConnectionString: "localhost:27017",
+		Database:         "surikata_auth",
 		users:            "users",
 		tokens:           "sessions",
 	}
@@ -125,11 +116,11 @@ func NewMgoStorageConnectionAndDatabase(connString, database string) *MgoDataSto
 
 func (a *MgoDataStorage) OpenSession() error {
 	var err error
-	a.mgoSession, err = mgo.Dial(a.connectionString)
+	a.mgoSession, err = mgo.Dial(a.ConnectionString)
 	if err != nil {
 		return err
 	}
-	a.mgoDB = a.mgoSession.DB(a.database)
+	a.mgoDB = a.mgoSession.DB(a.Database)
 	a.mgoUsers = a.mgoDB.C(a.users)
 	a.mgoTokens = a.mgoDB.C(a.tokens)
 
