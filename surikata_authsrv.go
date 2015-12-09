@@ -10,14 +10,16 @@ import (
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/sebest/logrusly"
 	"github.com/sohlich/etcd_discovery"
 	"github.com/sohlich/surikata_auth/auth"
 	"github.com/yhat/wsutil"
 
-	//"github.com/gorilla/pat"
-	"github.com/markbates/goth"
+	"github.com/kelseyhightower/envconfig"
+
+	// "github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
-	"github.com/markbates/goth/providers/twitter"
+	// "github.com/markbates/goth/providers/twitter"
 )
 
 const (
@@ -25,12 +27,7 @@ const (
 	TokenHeader = "X-AUTH"
 
 	//Configuration keys
-	KeyGatewayHost  = "GATEWAY_HOST"
-	KeyGatewayPort  = "GATEWAY_PORT"
-	KeyGatewayName  = "GATEWAY_NAME"
-	KeyMongoURI     = "MONGODB_URI"
-	KeyMongoDB      = "MONGODB_DB"
-	KeyETCDEndpoint = "ETCD_ENDPOINT"
+	KeyLogly = "LOGLY_TOKEN"
 )
 
 var (
@@ -42,47 +39,90 @@ var (
 	authProvider   auth.AuthProvider
 )
 
+type AppConfig struct {
+	Host string `default:"127.0.0.1"`
+	Port string `default:"8080"`
+	Name string `default:"core1"`
+}
+
+type MgoConfig struct {
+	URI string `default:"127.0.0.1:27017"`
+	DB  string `default:"surikata"`
+}
+
+type EtcdConfig struct {
+	Endpoint string `default:"http://127.0.0.1:4001"`
+}
+
+// loadConfiguration loads the configuration of application
+func loadConfiguration(app *AppConfig, mgo *MgoConfig, etcd *EtcdConfig) {
+	err := envconfig.Process(ServiceName, app)
+	if err != nil {
+		log.Panicln(err)
+	}
+	err = envconfig.Process("mongodb", mgo)
+	if err != nil {
+		log.Panicln(err)
+	}
+	err = envconfig.Process("etcd", etcd)
+	if err != nil {
+		log.Panicln(err)
+	}
+	if len(os.Getenv(KeyLogly)) > 0 {
+		log.Println("Loading logly token %s", os.Getenv(KeyLogly))
+		hook := logrusly.NewLogglyHook(os.Getenv(KeyLogly),
+			app.Host,
+			log.InfoLevel,
+			app.Name)
+		log.AddHook(hook)
+	}
+}
+
 func main() {
 	//TODO os.Getenv("DOMAIN")
-	goth.UseProviders(
-		twitter.NewAuthenticate("e8O58aGBxlI3ccS6g5mYQ", "1EA77vKfzGh37WqVj7Duoxdm5DgdeDyc9kzm4Y7XRg", " http://6d8798e2.ngrok.io/auth/twitter/callback"),
-	)
+	configureSocial()
+	// Load all configuration
+	appCfg := &AppConfig{}
+	mgoCfg := &MgoConfig{}
+	etcdCfg := &EtcdConfig{}
+	loadConfiguration(appCfg, mgoCfg, etcdCfg)
 
 	// Service discovery config
 	log.Infoln("Loading configuration for ETCD client")
 	var registryErr error
-	registryConfig.InstanceName = os.Getenv(KeyGatewayName)
-	registryConfig.BaseURL = fmt.Sprintf("%s:%s", os.Getenv(KeyGatewayHost), os.Getenv(KeyGatewayPort))
-	registryConfig.EtcdEndpoints = []string{os.Getenv(KeyETCDEndpoint)}
+	registryConfig.InstanceName = appCfg.Name
+	registryConfig.BaseURL = fmt.Sprintf("%s:%s", appCfg.Host, appCfg.Port)
+	registryConfig.EtcdEndpoints = []string{etcdCfg.Endpoint}
 	registryClient, registryErr = discovery.New(registryConfig)
 	if registryErr != nil {
 		log.Panic(registryErr)
 	}
 
 	//Mongo configuration
+	log.Infoln("Loading configuration of MongoDB")
 	mgoStorage := auth.NewMgoStorage()
-	mgoStorage.ConnectionString = os.Getenv(KeyMongoURI)
-	mgoStorage.Database = os.Getenv(KeyMongoDB)
+	mgoStorage.ConnectionString = mgoCfg.URI
+	mgoStorage.Database = mgoCfg.DB
 	err := mgoStorage.OpenSession()
 	if err != nil {
 		log.Panic(err)
 	}
-
+	log.Infoln("Initializing auth provider")
 	authProvider = auth.NewAuthProvider(mgoStorage)
 
+	log.Infoln("Initializing reverse proxy")
 	wsproxy := &wsutil.ReverseProxy{
 		Director: schemeDirector("ws://"),
 	}
-
 	proxy := &httputil.ReverseProxy{
 		Director: schemeDirector("http"),
 	}
-
 	multiProxy := &MultiProxy{
 		wsproxy,
 		proxy,
 	}
 
+	log.Infoln("Registering handlers")
 	//Handle login and register
 	mux := http.NewServeMux()
 	mux.HandleFunc("/login", loginHandler)
@@ -90,8 +130,16 @@ func main() {
 	// mux.Get("/auth/{provider}/callback", handleSocialLogin)
 	// mux.Get("/auth/{provider}", gothic.BeginAuthHandler)
 	//else handle via proxy
+	log.Infoln("Start listening on " + appCfg.Port)
 	mux.Handle("/", multiProxy)
-	http.ListenAndServe(":"+os.Getenv(KeyGatewayPort), mux)
+	serveErr := http.ListenAndServe(":"+appCfg.Port, mux)
+	if serveErr != nil {
+		log.Errorln(serveErr)
+	}
+}
+
+func configureSocial() {
+
 }
 
 type MultiProxy struct {
@@ -151,7 +199,7 @@ func transformToken(req *http.Request) {
 	if len(refToken) == 0 {
 		return
 	}
-
+	log.Infof("Getting security token %s", refToken)
 	valToken, err := authProvider.ValueToken(refToken)
 
 	if err == nil && len(valToken) != 0 {

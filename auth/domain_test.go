@@ -15,7 +15,7 @@ func cleanUp(store *MgoDataStorage) {
 
 func createMgoStorage() *MgoDataStorage {
 	mongo := NewMgoStorage()
-	mongo.database = "surikata_test"
+	mongo.Database = "surikata_test"
 	mongo.OpenSession()
 	return mongo
 }

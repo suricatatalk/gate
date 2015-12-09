@@ -109,7 +109,7 @@ func NewMgoStorage() *MgoDataStorage {
 		ConnectionString: "localhost:27017",
 		Database:         "surikata_auth",
 		users:            "users",
-		tokens:           "sessions",
+		tokens:           "tokens",
 	}
 
 }
