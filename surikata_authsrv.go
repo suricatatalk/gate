@@ -127,6 +127,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/login", loginHandler)
 	mux.HandleFunc("/register", registerHandler)
+	mux.HandleFunc("/activate", activateHandler)
 	// mux.Get("/auth/{provider}/callback", handleSocialLogin)
 	// mux.Get("/auth/{provider}", gothic.BeginAuthHandler)
 	//else handle via proxy
@@ -243,11 +244,18 @@ func registerHandler(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	sendMailToUser(user.Email, user.Id.Hex())
+
 	jsonVal, _ := json.Marshal(user)
 	rw.Write(jsonVal)
 }
 
+func activateHandler(rw http.ResponseWriter, req *http.Request) {
+
+}
+
 func handleSocialLogin(rw http.ResponseWriter, req *http.Request) {
+
 	log.Println(gothic.GetState(req))
 	socialUser, err := gothic.CompleteUserAuth(rw, req)
 	if err != nil {
@@ -263,4 +271,41 @@ func handleSocialLogin(rw http.ResponseWriter, req *http.Request) {
 	log.Println(socialUser.UserID)
 	log.Println(socialUser.AccessToken)
 	log.Println(socialUser.NickName)
+}
+
+func sendMailToUser(email, token string) error {
+	mailURL, err := registryClient.ServicesByName(MailServiceType)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+
+	if len(mailURL) == 0 {
+		return ErrNoServiceInUrl
+	}
+
+	eMsg := struct {
+		Recipient string
+		Subject   string
+		Message   string
+	}{
+		email,
+		"Suricata: Registration confirmation",
+		"",
+	}
+
+	out, jsonError := json.Marshal(eMsg)
+	if jsonError != nil {
+		return err
+	}
+
+	jsonReader := strings.NewReader(string(out))
+	log.Printf("Sending to mail %s", mailURL[0])
+	_, postErr := http.Post(fmt.Sprintf("http://%s", mailURL[0]), "application/json", jsonReader)
+
+	if postErr != nil {
+		log.Error(postErr)
+	}
+
+	return nil
 }
