@@ -12,8 +12,8 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/sebest/logrusly"
 	"github.com/sohlich/etcd_discovery"
-	"github.com/sohlich/surikata_auth/auth"
-	"github.com/sohlich/surikata_mail/client"
+	"github.com/suricatatalk/gate/auth"
+	"github.com/suricatatalk/mail/client"
 	"github.com/yhat/wsutil"
 
 	"github.com/kelseyhightower/envconfig"
