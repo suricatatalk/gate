@@ -13,6 +13,7 @@ import (
 	"github.com/sebest/logrusly"
 	"github.com/sohlich/etcd_discovery"
 	"github.com/sohlich/surikata_auth/auth"
+	"github.com/sohlich/surikata_mail/client"
 	"github.com/yhat/wsutil"
 
 	"github.com/kelseyhightower/envconfig"
@@ -31,12 +32,13 @@ const (
 )
 
 var (
-	ErrNoServiceInUrl                              = errors.New("No service definition in url")
-	registryConfig    discovery.EtcdRegistryConfig = discovery.EtcdRegistryConfig{
+	ErrNoServiceInUrl = errors.New("No service definition in url")
+	registryConfig    = discovery.EtcdRegistryConfig{
 		ServiceName: ServiceName,
 	}
 	registryClient *discovery.EtcdReigistryClient
 	authProvider   auth.AuthProvider
+	mailClient     client.MailClient
 )
 
 type AppConfig struct {
@@ -97,6 +99,8 @@ func main() {
 	if registryErr != nil {
 		log.Panic(registryErr)
 	}
+
+	mailClient = client.NewSuricataMailClient(registryClient)
 
 	//Mongo configuration
 	log.Infoln("Loading configuration of MongoDB")
