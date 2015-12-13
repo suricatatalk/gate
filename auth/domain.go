@@ -17,12 +17,14 @@ var (
 //User structure
 //to hold user data
 type User struct {
-	Id         bson.ObjectId `bson:"_id"`
-	UserID     string
-	Email      string
-	Password   string
-	Expiration int64
-	LastAccess int64
+	Id              bson.ObjectId `bson:"_id"`
+	UserID          string
+	Email           string
+	Password        string
+	Expiration      int64
+	LastAccess      int64
+	Activated       bool
+	ActivationToken string
 }
 
 func (user User) Equals(other *User) bool {
@@ -31,6 +33,14 @@ func (user User) Equals(other *User) bool {
 	match = match && user.Expiration == other.Expiration
 	match = match && user.LastAccess == other.LastAccess
 	return match
+}
+
+func NewInactiveUser() User {
+	user := User{
+		Activated:       false,
+		ActivationToken: uuid.NewV4().String(),
+	}
+	return user
 }
 
 //Creates the user from given map.
@@ -86,6 +96,7 @@ type DataStorage interface {
 	InsertUser(user User) error
 	UpdateUser(user User) error
 	DeleteUser(userId string) error
+	ActivateUser(activationToken string) error
 	UserByEmail(email string) (User, error)
 	TokenByEmail(email string) (Token, error)
 	TokenByRefToken(tknString string) (Token, error)
@@ -151,6 +162,11 @@ func (a *MgoDataStorage) UpdateUser(user User) error {
 
 func (a *MgoDataStorage) DeleteUser(email string) error {
 	return a.mgoUsers.Remove(bson.M{"email": email})
+}
+
+func (a *MgoDataStorage) ActivateUser(activationToken string) error {
+	return a.mgoUsers.Update(bson.M{"activationtoken": activationToken},
+		bson.M{"$set": bson.M{"activated": true, "activationtoken": ""}})
 }
 
 func (a *MgoDataStorage) UserByEmail(email string) (User, error) {

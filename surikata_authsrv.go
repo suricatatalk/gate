@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"regexp"
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
@@ -32,13 +33,15 @@ const (
 )
 
 var (
-	ErrNoServiceInUrl = errors.New("No service definition in url")
-	registryConfig    = discovery.EtcdRegistryConfig{
+	ErrNoServiceInUrl          = errors.New("No service definition in url")
+	ErrInavelidActivationToken = errors.New("Invalid activation token")
+	registryConfig             = discovery.EtcdRegistryConfig{
 		ServiceName: ServiceName,
 	}
-	registryClient *discovery.EtcdReigistryClient
-	authProvider   auth.AuthProvider
-	mailClient     client.MailClient
+	registryClient    *discovery.EtcdReigistryClient
+	authProvider      auth.AuthProvider
+	mailClient        client.MailClient
+	actiavteUserRegex = regexp.MustCompile(".*\\/activate\\/")
 )
 
 type AppConfig struct {
@@ -236,7 +239,7 @@ func loginHandler(rw http.ResponseWriter, req *http.Request) {
 
 func registerHandler(rw http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(req.Body)
-	user := auth.User{}
+	user := auth.NewInactiveUser()
 	decodeErr := decoder.Decode(&user)
 	if decodeErr != nil {
 		http.Error(rw, decodeErr.Error(), http.StatusBadRequest)
@@ -248,18 +251,23 @@ func registerHandler(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sendMailToUser(user.Email, user.Id.Hex())
+	sendMailToUser(user.Email, user.ActivationToken)
 
+	user.ActivationToken = ""
 	jsonVal, _ := json.Marshal(user)
 	rw.Write(jsonVal)
 }
 
 func activateHandler(rw http.ResponseWriter, req *http.Request) {
 
+	token := actiavteUserRegex.ReplaceAllString(req.URL.Path, "")
+	if len(token) == 36 {
+		http.Error(rw, ErrInavelidActivationToken.Error(), http.StatusBadRequest)
+	}
+	authProvider.ActivateUser(token)
 }
 
 func handleSocialLogin(rw http.ResponseWriter, req *http.Request) {
-
 	log.Println(gothic.GetState(req))
 	socialUser, err := gothic.CompleteUserAuth(rw, req)
 	if err != nil {
@@ -278,38 +286,6 @@ func handleSocialLogin(rw http.ResponseWriter, req *http.Request) {
 }
 
 func sendMailToUser(email, token string) error {
-	mailURL, err := registryClient.ServicesByName(MailServiceType)
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	if len(mailURL) == 0 {
-		return ErrNoServiceInUrl
-	}
-
-	eMsg := struct {
-		Recipient string
-		Subject   string
-		Message   string
-	}{
-		email,
-		"Suricata: Registration confirmation",
-		"",
-	}
-
-	out, jsonError := json.Marshal(eMsg)
-	if jsonError != nil {
-		return err
-	}
-
-	jsonReader := strings.NewReader(string(out))
-	log.Printf("Sending to mail %s", mailURL[0])
-	_, postErr := http.Post(fmt.Sprintf("http://%s", mailURL[0]), "application/json", jsonReader)
-
-	if postErr != nil {
-		log.Error(postErr)
-	}
-
-	return nil
+	messageStruct := struct{ ConfirmationLink string }{fmt.Sprintf("http://suricata.cleverapps.io/activate/%s", token)}
+	return mailClient.SendMail(email, struct{}{}, messageStruct)
 }

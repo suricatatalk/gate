@@ -36,6 +36,7 @@ type AuthProvider interface {
 	SignOut(refToken string) error
 	// ReferenceToken(email string) (string, error)
 	ValueToken(refToken string) (string, error)
+	ActivateUser(activationToken string) error
 }
 
 //Authenticator provide
@@ -104,6 +105,10 @@ func (m *MgoAuthProvider) ValueToken(refToken string) (string, error) {
 		tokenString := token.JwtToken
 		return tokenString, nil
 	}
+}
+
+func (m *MgoAuthProvider) ActivateUser(activationToken string) error {
+	return m.ActivateUser(activationToken)
 }
 
 func NewAuthProvider(store DataStorage) *MgoAuthProvider {

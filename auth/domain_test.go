@@ -240,3 +240,30 @@ func TestInvalidateToken(t *testing.T) {
 	}
 
 }
+
+func TestActivateUser(t *testing.T) {
+	mongo := createMgoStorage()
+	defer cleanUp(mongo)
+	user := User{
+		Id:              bson.NewObjectId(),
+		Email:           "sohlich@example.com",
+		Password:        "ABCDEF",
+		Expiration:      time.Now().Unix(),
+		LastAccess:      time.Now().Unix(),
+		ActivationToken: "12345",
+		Activated:       false,
+	}
+	err := mongo.InsertUser(user)
+	if err != nil {
+		t.Error(err)
+	}
+	count, err := mongo.mgoUsers.Count()
+	if err == nil && count != 1 {
+		t.Error("User not inserted")
+	}
+	mongo.ActivateUser(user.ActivationToken)
+	dbUser, _ := mongo.UserByEmail(user.Email)
+	if !dbUser.Activated {
+		t.Error("User not activated")
+	}
+}
