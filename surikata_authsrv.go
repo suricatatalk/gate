@@ -42,12 +42,14 @@ var (
 	authProvider      auth.AuthProvider
 	mailClient        client.MailClient
 	actiavteUserRegex = regexp.MustCompile(".*\\/activate\\/")
+	appCfg            *AppConfig
 )
 
 type AppConfig struct {
-	Host string `default:"127.0.0.1"`
-	Port string `default:"8080"`
-	Name string `default:"core1"`
+	Host   string `default:"127.0.0.1"`
+	Port   string `default:"8080"`
+	Name   string `default:"core1"`
+	Domain string `default:"suricata.cleverapps.com"`
 }
 
 type MgoConfig struct {
@@ -87,7 +89,7 @@ func main() {
 	//TODO os.Getenv("DOMAIN")
 	configureSocial()
 	// Load all configuration
-	appCfg := &AppConfig{}
+	appCfg = &AppConfig{}
 	mgoCfg := &MgoConfig{}
 	etcdCfg := &EtcdConfig{}
 	loadConfiguration(appCfg, mgoCfg, etcdCfg)
@@ -286,6 +288,6 @@ func handleSocialLogin(rw http.ResponseWriter, req *http.Request) {
 }
 
 func sendMailToUser(email, token string) error {
-	messageStruct := struct{ ConfirmationLink string }{fmt.Sprintf("http://suricata.cleverapps.io/activate/%s", token)}
+	messageStruct := struct{ ConfirmationLink string }{fmt.Sprintf("http://%s/activate/%s", appCfg.Domain, token)}
 	return mailClient.SendMail(email, struct{}{}, messageStruct)
 }
