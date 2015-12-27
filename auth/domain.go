@@ -185,7 +185,7 @@ func (a *MgoDataStorage) InsertToken(token Token) error {
 
 func (a *MgoDataStorage) TokenByEmail(email string) (Token, error) {
 	tkn := Token{}
-	err := a.mgoTokens.Find(bson.M{"email": email}).One(&tkn)
+	err := a.mgoTokens.Find(bson.M{"email": email}).Sort("-expiration").One(&tkn)
 	return tkn, err
 }
 

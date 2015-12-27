@@ -134,9 +134,9 @@ func main() {
 	log.Infoln("Registering handlers")
 	//Handle login and register
 	mux := http.NewServeMux()
+	mux.HandleFunc("/activate/", activateHandler)
 	mux.HandleFunc("/login", loginHandler)
 	mux.HandleFunc("/register", registerHandler)
-	mux.HandleFunc("/activate", activateHandler)
 	// mux.Get("/auth/{provider}/callback", handleSocialLogin)
 	// mux.Get("/auth/{provider}", gothic.BeginAuthHandler)
 	//else handle via proxy
@@ -163,7 +163,6 @@ func (m *MultiProxy) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	} else {
 		m.http.ServeHTTP(rw, r)
 	}
-
 }
 
 func schemeDirector(scheme string) func(req *http.Request) {
@@ -225,6 +224,7 @@ func loginHandler(rw http.ResponseWriter, req *http.Request) {
 		Email    string
 		Password string
 	}{}
+
 	decodeErr := decoder.Decode(&payload)
 	if decodeErr != nil {
 		http.Error(rw, decodeErr.Error(), http.StatusBadRequest)
@@ -261,9 +261,9 @@ func registerHandler(rw http.ResponseWriter, req *http.Request) {
 }
 
 func activateHandler(rw http.ResponseWriter, req *http.Request) {
-
+	log.Println("Getting activate handler")
 	token := actiavteUserRegex.ReplaceAllString(req.URL.Path, "")
-	if len(token) == 36 {
+	if len(token) != 36 {
 		http.Error(rw, ErrInavelidActivationToken.Error(), http.StatusBadRequest)
 	}
 	authProvider.ActivateUser(token)

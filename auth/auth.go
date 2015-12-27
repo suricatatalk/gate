@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -16,9 +17,11 @@ const (
 )
 
 var (
-	ErrUserExpired      = errors.New("User identity expired")
-	ErrPasswordNotMatch = errors.New("Password not match")
-	ErrUserNotFound     = errors.New("User not found")
+	ErrUserExpired              = errors.New("User identity expired")
+	ErrPasswordNotMatch         = errors.New("Password not match")
+	ErrUserNotFound             = errors.New("User not found")
+	ErrCannotRetrieveExpiration = errors.New("Cannot retireve expiration from token")
+	ErrTokenExpired             = errors.New("Token expired")
 )
 
 type AuthClient interface {
@@ -68,10 +71,13 @@ func (m *MgoAuthProvider) SignIn(email, password string) (string, error) {
 	}
 	err = verifyUser(user, password)
 
+	// m.store.InvalidateAllByEmail(email)
 	token, _ := m.store.TokenByEmail(email)
-	if token.Email != "" && token.Expiration < now.Unix() {
+	if token.Email != "" && token.Expiration > now.Unix() {
 		return token.RefToken, nil
 	}
+
+	log.Printf("auth: token expiration %f", token.Expiration)
 
 	tokenString, tokenErr := generateJwtToken(user)
 
@@ -79,7 +85,6 @@ func (m *MgoAuthProvider) SignIn(email, password string) (string, error) {
 		return "", tokenErr
 	}
 
-	//TODO create token and short token
 	token = NewToken(user, tokenString)
 	err = m.store.InsertToken(token)
 	if err != nil {
@@ -108,7 +113,7 @@ func (m *MgoAuthProvider) ValueToken(refToken string) (string, error) {
 }
 
 func (m *MgoAuthProvider) ActivateUser(activationToken string) error {
-	return m.ActivateUser(activationToken)
+	return m.store.ActivateUser(activationToken)
 }
 
 func NewAuthProvider(store DataStorage) *MgoAuthProvider {
@@ -139,11 +144,17 @@ func generateJwtToken(user User) (string, error) {
 	return token.SignedString([]byte(JwtSecret))
 }
 
+// DecodeJwtToken validate
+// and decode the JWT token
 func DecodeJwtToken(token string) (*User, error) {
 	outToken, err := jwt.Parse(token, func(tkn *jwt.Token) (interface{}, error) {
 		expirate, ok := tkn.Claims[JwtExpKey].(float64)
-		if !ok || expirate < float64(time.Now().Unix()) {
-			return nil, jwt.ErrInvalidKey
+		if !ok {
+			return nil, ErrCannotRetrieveExpiration
+		}
+		log.Printf("Expiration %f", expirate)
+		if expirate < float64(time.Now().Unix()) {
+			return nil, ErrTokenExpired
 		}
 		return []byte(JwtSecret), nil
 	})
@@ -151,10 +162,8 @@ func DecodeJwtToken(token string) (*User, error) {
 		tokenMap := outToken.Claims[JwtUserKey].(map[string]interface{})
 		user, err := NewUser(tokenMap)
 		return user, err
-	} else {
-		return nil, err
 	}
-
+	return nil, err
 }
 
 func verifyUser(user User, password string) error {
