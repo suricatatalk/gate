@@ -49,7 +49,7 @@ type AppConfig struct {
 	Host   string `default:"127.0.0.1"`
 	Port   string `default:"8080"`
 	Name   string `default:"core1"`
-	Domain string `default:"suricata.cleverapps.com"`
+	Domain string `default:"suricata.cleverapps.io"`
 }
 
 type MgoConfig struct {
