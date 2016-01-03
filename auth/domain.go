@@ -90,18 +90,42 @@ func NewToken(user User, jwtToken string) Token {
 	return token
 }
 
-type DataStorage interface {
-	OpenSession() error
-	CloseSession()
+type Activity struct {
+	ID         bson.ObjectId `bson:"_id"`
+	Type       string
+	Token      string
+	User       string
+	Time       int64
+	Expiration int64
+}
+
+type UserStorage interface {
 	InsertUser(user User) error
 	UpdateUser(user User) error
 	DeleteUser(userId string) error
 	ActivateUser(activationToken string) error
 	UserByEmail(email string) (User, error)
+	UserByID(hexID string) (User, error)
+}
+
+type TokenStorage interface {
 	TokenByEmail(email string) (Token, error)
 	TokenByRefToken(tknString string) (Token, error)
 	InvalidateAllByEmail(tknString string) error
 	InsertToken(tkn Token) error
+}
+
+type ActivityStorage interface {
+	InsertActivity(activity *Activity) error
+	GetActivityByToken(token string) (Activity, error)
+}
+
+type DataStorage interface {
+	UserStorage
+	TokenStorage
+	ActivityStorage
+	OpenSession() error
+	CloseSession()
 }
 
 type MgoDataStorage struct {
@@ -109,10 +133,12 @@ type MgoDataStorage struct {
 	Database         string
 	users            string
 	tokens           string
+	activities       string
 	mgoSession       *mgo.Session
 	mgoDB            *mgo.Database
 	mgoUsers         *mgo.Collection
 	mgoTokens        *mgo.Collection
+	mgoActivities    *mgo.Collection
 }
 
 func NewMgoStorage() *MgoDataStorage {
@@ -121,6 +147,7 @@ func NewMgoStorage() *MgoDataStorage {
 		Database:         "surikata_auth",
 		users:            "users",
 		tokens:           "tokens",
+		activities:       "activities",
 	}
 
 }
@@ -134,6 +161,7 @@ func (a *MgoDataStorage) OpenSession() error {
 	a.mgoDB = a.mgoSession.DB(a.Database)
 	a.mgoUsers = a.mgoDB.C(a.users)
 	a.mgoTokens = a.mgoDB.C(a.tokens)
+	a.mgoActivities = a.mgoDB.C(a.activities)
 
 	a.mgoUsers.EnsureIndex(mgo.Index{
 		Key:        []string{"email"},
@@ -178,6 +206,15 @@ func (a *MgoDataStorage) UserByEmail(email string) (User, error) {
 	return user, err
 }
 
+func (a *MgoDataStorage) UserByID(hexID string) (User, error) {
+	user := User{}
+	err := a.mgoUsers.FindId(bson.ObjectIdHex(hexID)).One(&user)
+	if user.Id.Hex() != hexID {
+		return user, err
+	}
+	return user, err
+}
+
 func (a *MgoDataStorage) InsertToken(token Token) error {
 	token.Id = bson.NewObjectId()
 	return a.mgoTokens.Insert(&token)
@@ -198,4 +235,15 @@ func (a *MgoDataStorage) TokenByRefToken(tknString string) (Token, error) {
 func (a *MgoDataStorage) InvalidateAllByEmail(email string) error {
 	_, err := a.mgoTokens.UpdateAll(bson.M{"email": email}, bson.M{"$set": bson.M{"expiration": time.Now().Unix()}})
 	return err
+}
+
+func (a *MgoDataStorage) InsertActivity(activity *Activity) error {
+	activity.ID = bson.NewObjectId()
+	return a.mgoActivities.Insert(&activity)
+}
+
+func (a *MgoDataStorage) GetActivityByToken(tkn string) (Activity, error) {
+	activity := Activity{}
+	err := a.mgoActivities.Find(bson.M{"token": tkn}).One(&activity)
+	return activity, err
 }

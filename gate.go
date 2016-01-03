@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"text/template"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/sebest/logrusly"
@@ -38,11 +39,18 @@ var (
 	registryConfig             = discovery.EtcdRegistryConfig{
 		ServiceName: ServiceName,
 	}
-	registryClient    *discovery.EtcdReigistryClient
-	authProvider      auth.AuthProvider
-	mailClient        client.MailClient
-	actiavteUserRegex = regexp.MustCompile(".*\\/activate\\/")
-	appCfg            *AppConfig
+	registryClient     *discovery.EtcdReigistryClient
+	authProvider       auth.AuthProvider
+	passManager        auth.PasswordManager
+	actiavteUserRegex  = regexp.MustCompile(".*\\/activate\\/")
+	passwordResetRegex = regexp.MustCompile(".*\\/resetpassword\\/")
+	appCfg             *AppConfig
+)
+
+var (
+	mailClient         client.MailClient
+	activationComposer client.MessageComposer
+	passResetComposer  client.MessageComposer
 )
 
 type AppConfig struct {
@@ -61,8 +69,12 @@ type EtcdConfig struct {
 	Endpoint string `default:"http://127.0.0.1:4001"`
 }
 
+type NatsConfig struct {
+	Endpoint string `default:"nats://localhost:4222"`
+}
+
 // loadConfiguration loads the configuration of application
-func loadConfiguration(app *AppConfig, mgo *MgoConfig, etcd *EtcdConfig) {
+func loadConfiguration(app *AppConfig, mgo *MgoConfig, etcd *EtcdConfig, nats *NatsConfig) {
 	err := envconfig.Process(ServiceName, app)
 	if err != nil {
 		log.Panicln(err)
@@ -72,6 +84,10 @@ func loadConfiguration(app *AppConfig, mgo *MgoConfig, etcd *EtcdConfig) {
 		log.Panicln(err)
 	}
 	err = envconfig.Process("etcd", etcd)
+	if err != nil {
+		log.Panicln(err)
+	}
+	err = envconfig.Process("nats", nats)
 	if err != nil {
 		log.Panicln(err)
 	}
@@ -92,7 +108,8 @@ func main() {
 	appCfg = &AppConfig{}
 	mgoCfg := &MgoConfig{}
 	etcdCfg := &EtcdConfig{}
-	loadConfiguration(appCfg, mgoCfg, etcdCfg)
+	natsCfg := &NatsConfig{}
+	loadConfiguration(appCfg, mgoCfg, etcdCfg, natsCfg)
 
 	// Service discovery config
 	log.Infoln("Loading configuration for ETCD client")
@@ -105,8 +122,12 @@ func main() {
 		log.Panic(registryErr)
 	}
 
-	mailClient = client.NewSuricataMailClient(registryClient)
-
+	initMail()
+	var mailErr error
+	mailClient, mailErr = client.NewNatsMailClient(natsCfg.Endpoint)
+	if mailErr != nil {
+		log.Errorf("Cannot initialize mail client: %s", mailErr.Error())
+	}
 	//Mongo configuration
 	log.Infoln("Loading configuration of MongoDB")
 	mgoStorage := auth.NewMgoStorage()
@@ -117,7 +138,9 @@ func main() {
 		log.Panic(err)
 	}
 	log.Infoln("Initializing auth provider")
-	authProvider = auth.NewAuthProvider(mgoStorage)
+	mgoAuthProvider := auth.NewAuthProvider(mgoStorage)
+	authProvider = mgoAuthProvider
+	passManager = mgoAuthProvider
 
 	log.Infoln("Initializing reverse proxy")
 	wsproxy := &wsutil.ReverseProxy{
@@ -137,6 +160,9 @@ func main() {
 	mux.HandleFunc("/activate/", activateHandler)
 	mux.HandleFunc("/login", loginHandler)
 	mux.HandleFunc("/register", registerHandler)
+
+	mux.HandleFunc("/requestpasswordreset", requestPasswordResetHandler)
+	mux.HandleFunc("/resetpassword/", passwordResetHandler)
 	// mux.Get("/auth/{provider}/callback", handleSocialLogin)
 	// mux.Get("/auth/{provider}", gothic.BeginAuthHandler)
 	//else handle via proxy
@@ -145,6 +171,22 @@ func main() {
 	serveErr := http.ListenAndServe(":"+appCfg.Port, mux)
 	if serveErr != nil {
 		log.Errorln(serveErr)
+	}
+}
+
+func initMail() {
+	subjectTemp, _ := template.New("activate_subject").Parse("Suricata: Registration confirmation")
+	messageTemp, _ := template.New("activate_message").Parse("Please confirm the registration on Suricata Talk website with click on this link {{.ConfirmationLink}}")
+	activationComposer = &client.SuricataMessageComposer{
+		subjectTemp,
+		messageTemp,
+	}
+
+	subjectTemp, _ = template.New("passreset_subject").Parse("Suricata: Password reset")
+	messageTemp, _ = template.New("passreset_message").Parse("Reset the password on following link {{.ResetLink}}")
+	passResetComposer = &client.SuricataMessageComposer{
+		subjectTemp,
+		messageTemp,
 	}
 }
 
@@ -232,10 +274,14 @@ func loginHandler(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	token, err := authProvider.SignIn(payload.Email, payload.Password)
-	if err != nil {
+	if err != nil && err != auth.ErrPasswordNotMatch {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
+	} else if err == auth.ErrPasswordNotMatch {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
 	}
+
 	rw.Header().Set(TokenHeader, token)
 }
 
@@ -253,7 +299,7 @@ func registerHandler(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sendMailToUser(user.Email, user.ActivationToken)
+	sendActivationMailToUser(user.Email, user.ActivationToken)
 
 	user.ActivationToken = ""
 	jsonVal, _ := json.Marshal(user)
@@ -261,12 +307,45 @@ func registerHandler(rw http.ResponseWriter, req *http.Request) {
 }
 
 func activateHandler(rw http.ResponseWriter, req *http.Request) {
-	log.Println("Getting activate handler")
+	log.Println("Activate handler")
 	token := actiavteUserRegex.ReplaceAllString(req.URL.Path, "")
 	if len(token) != 36 {
 		http.Error(rw, ErrInavelidActivationToken.Error(), http.StatusBadRequest)
 	}
 	authProvider.ActivateUser(token)
+}
+
+func requestPasswordResetHandler(rw http.ResponseWriter, req *http.Request) {
+	log.Println("Request password reset")
+	email := req.FormValue("email")
+	if len(email) == 0 {
+		log.Infoln("Parameter \"email\" not found")
+		http.Error(rw, "Parameter not found", http.StatusBadRequest)
+		return
+	}
+	token, err := passManager.RequestPasswordResetFor(email)
+	if err != nil {
+		log.Error(err)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	//TODO send mail with token
+	err = sendPasswordResetMail(email, token)
+	if err != nil {
+		log.Error("Could not send password reset for mail: %s", email)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func passwordResetHandler(rw http.ResponseWriter, req *http.Request) {
+	tkn := passwordResetRegex.ReplaceAllString(req.URL.Path, "")
+	pass := req.FormValue("password")
+	err := passManager.ResetPasswordBy(tkn, pass)
+	if err != nil {
+		log.Error(err)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func handleSocialLogin(rw http.ResponseWriter, req *http.Request) {
@@ -287,7 +366,16 @@ func handleSocialLogin(rw http.ResponseWriter, req *http.Request) {
 	log.Println(socialUser.NickName)
 }
 
-func sendMailToUser(email, token string) error {
+func sendActivationMailToUser(email, token string) error {
 	messageStruct := struct{ ConfirmationLink string }{fmt.Sprintf("http://%s/activate/%s", appCfg.Domain, token)}
-	return mailClient.SendMail(email, struct{}{}, messageStruct)
+	subject := activationComposer.ComposeSubject(struct{}{})
+	message := activationComposer.ComposeMessage(messageStruct)
+	return mailClient.SendMail(email, subject, message)
+}
+
+func sendPasswordResetMail(email, token string) error {
+	messageStruct := struct{ ResetLink string }{fmt.Sprintf("http://%s/resetpassword/%s", appCfg.Domain, token)}
+	subject := passResetComposer.ComposeSubject(struct{}{})
+	message := passResetComposer.ComposeMessage(messageStruct)
+	return mailClient.SendMail(email, subject, message)
 }
