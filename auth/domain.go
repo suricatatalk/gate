@@ -17,14 +17,13 @@ var (
 //User structure
 //to hold user data
 type User struct {
-	Id              bson.ObjectId `bson:"_id"`
-	UserID          string
-	Email           string
-	Password        string
-	Expiration      int64
-	LastAccess      int64
-	Activated       bool
-	ActivationToken string
+	Id         bson.ObjectId `bson:"_id"`
+	UserID     string
+	Email      string
+	Password   string
+	Expiration int64
+	LastAccess int64
+	Activated  bool
 }
 
 func (user User) Equals(other *User) bool {
@@ -37,8 +36,7 @@ func (user User) Equals(other *User) bool {
 
 func NewInactiveUser() User {
 	user := User{
-		Activated:       false,
-		ActivationToken: uuid.NewV4().String(),
+		Activated: false,
 	}
 	return user
 }
@@ -97,6 +95,7 @@ type Activity struct {
 	User       string
 	Time       int64
 	Expiration int64
+	Used       int64 `bson:",omitempty"`
 }
 
 type UserStorage interface {
@@ -117,6 +116,7 @@ type TokenStorage interface {
 
 type ActivityStorage interface {
 	InsertActivity(activity *Activity) error
+	UpdateActivity(activity *Activity) error
 	GetActivityByToken(token string) (Activity, error)
 }
 
@@ -240,6 +240,10 @@ func (a *MgoDataStorage) InvalidateAllByEmail(email string) error {
 func (a *MgoDataStorage) InsertActivity(activity *Activity) error {
 	activity.ID = bson.NewObjectId()
 	return a.mgoActivities.Insert(&activity)
+}
+
+func (a *MgoDataStorage) UpdateActivity(activity *Activity) error {
+	return a.mgoActivities.UpdateId(activity.ID, &activity)
 }
 
 func (a *MgoDataStorage) GetActivityByToken(tkn string) (Activity, error) {

@@ -19,7 +19,8 @@ const (
 
 // Secrutity activtity
 const (
-	PASSWORD_RESET = "PASSWORD_RESET"
+	PASSWORD_RESET  = "PASSWORD_RESET"
+	USER_ACTIVATION = "USER_ACTIVATION"
 )
 
 var (
@@ -28,6 +29,7 @@ var (
 	ErrUserNotFound             = errors.New("User not found")
 	ErrCannotRetrieveExpiration = errors.New("Cannot retireve expiration from token")
 	ErrTokenExpired             = errors.New("Token expired")
+	ErrResetTokenExpired        = errors.New("Reset token expired")
 	ErrNoPasswordResetRequested = errors.New("No password request")
 )
 
@@ -46,6 +48,7 @@ type AuthProvider interface {
 	SignOut(refToken string) error
 	ValueToken(refToken string) (string, error)
 	ActivateUser(activationToken string) error
+	RequestUserActivationFor(email string) (string, error)
 }
 
 type PasswordManager interface {
@@ -124,26 +127,65 @@ func (m *MgoAuthProvider) ValueToken(refToken string) (string, error) {
 	}
 }
 
-func (m *MgoAuthProvider) ActivateUser(activationToken string) error {
-	return m.store.ActivateUser(activationToken)
-}
-
-func (m *MgoAuthProvider) RequestPasswordResetFor(email string) (string, error) {
-
-	now := time.Now()
+func (m *MgoAuthProvider) RequestUserActivationFor(email string) (string, error) {
 	user, err := m.store.UserByEmail(email)
 	if err != nil {
 		return "", err
 	}
+	return m.storeActivity(user, USER_ACTIVATION)
+}
 
+func (m *MgoAuthProvider) ActivateUser(activationToken string) error {
+	activity, err := m.store.GetActivityByToken(activationToken)
+	if err != nil {
+		return err
+	}
+
+	if len(activity.Token) == 0 || activity.Type != USER_ACTIVATION {
+		return ErrNoPasswordResetRequested
+	}
+
+	now := time.Now().Unix()
+
+	if activity.Expiration < now || activity.Used != int64(0) {
+		return ErrResetTokenExpired
+	}
+
+	var user User
+	user, err = m.store.UserByID(activity.User)
+	if len(user.Email) == 0 {
+		return ErrUserNotFound
+	}
+
+	user.Activated = true
+
+	err = m.store.UpdateUser(user)
+	if err == nil {
+		activity.Used = now
+		err = m.store.UpdateActivity(&activity)
+	}
+
+	return err
+}
+
+func (m *MgoAuthProvider) RequestPasswordResetFor(email string) (string, error) {
+	user, err := m.store.UserByEmail(email)
+	if err != nil {
+		return "", err
+	}
+	return m.storeActivity(user, PASSWORD_RESET)
+}
+
+func (m *MgoAuthProvider) storeActivity(user User, activityType string) (string, error) {
+	now := time.Now()
 	activity := &Activity{
-		Type:       PASSWORD_RESET,
+		Type:       activityType,
 		Token:      uuid.NewV4().String(),
 		Time:       now.Unix(),
 		User:       user.Id.Hex(),
 		Expiration: now.Add(24 * time.Hour).Unix(),
 	}
-	err = m.store.InsertActivity(activity)
+	err := m.store.InsertActivity(activity)
 
 	if err != nil {
 		return "", nil
@@ -161,6 +203,12 @@ func (m *MgoAuthProvider) ResetPasswordBy(activityToken, newpass string) error {
 		return ErrNoPasswordResetRequested
 	}
 
+	now := time.Now().Unix()
+
+	if activity.Expiration < now || activity.Used != int64(0) {
+		return ErrResetTokenExpired
+	}
+
 	var user User
 	user, err = m.store.UserByID(activity.User)
 	if len(user.Email) == 0 {
@@ -172,7 +220,14 @@ func (m *MgoAuthProvider) ResetPasswordBy(activityToken, newpass string) error {
 		return encErr
 	}
 	user.Password = encPass
-	return m.store.UpdateUser(user)
+
+	err = m.store.UpdateUser(user)
+	if err == nil {
+		activity.Used = now
+		err = m.store.UpdateActivity(&activity)
+	}
+
+	return err
 }
 
 func NewAuthProvider(store DataStorage) *MgoAuthProvider {

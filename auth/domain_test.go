@@ -245,13 +245,12 @@ func TestActivateUser(t *testing.T) {
 	mongo := createMgoStorage()
 	defer cleanUp(mongo)
 	user := User{
-		Id:              bson.NewObjectId(),
-		Email:           "sohlich@example.com",
-		Password:        "ABCDEF",
-		Expiration:      time.Now().Unix(),
-		LastAccess:      time.Now().Unix(),
-		ActivationToken: "12345",
-		Activated:       false,
+		Id:         bson.NewObjectId(),
+		Email:      "sohlich@example.com",
+		Password:   "ABCDEF",
+		Expiration: time.Now().Unix(),
+		LastAccess: time.Now().Unix(),
+		Activated:  false,
 	}
 	err := mongo.InsertUser(user)
 	if err != nil {
@@ -261,8 +260,9 @@ func TestActivateUser(t *testing.T) {
 	if err == nil && count != 1 {
 		t.Error("User not inserted")
 	}
-	mongo.ActivateUser(user.ActivationToken)
 	dbUser, _ := mongo.UserByEmail(user.Email)
+	user.Activated = true
+	mongo.UpdateUser(user)
 	if !dbUser.Activated {
 		t.Error("User not activated")
 	}

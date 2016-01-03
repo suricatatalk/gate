@@ -299,9 +299,12 @@ func registerHandler(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sendActivationMailToUser(user.Email, user.ActivationToken)
+	actToken, err := authProvider.RequestUserActivationFor(user.Email)
+	if err != nil {
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+	}
+	sendActivationMailToUser(user.Email, actToken)
 
-	user.ActivationToken = ""
 	jsonVal, _ := json.Marshal(user)
 	rw.Write(jsonVal)
 }
@@ -342,7 +345,10 @@ func passwordResetHandler(rw http.ResponseWriter, req *http.Request) {
 	tkn := passwordResetRegex.ReplaceAllString(req.URL.Path, "")
 	pass := req.FormValue("password")
 	err := passManager.ResetPasswordBy(tkn, pass)
-	if err != nil {
+	if err == auth.ErrResetTokenExpired {
+		http.Error(rw, "Expired", http.StatusForbidden)
+
+	} else if err != nil {
 		log.Error(err)
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 	}
