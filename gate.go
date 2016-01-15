@@ -12,8 +12,10 @@ import (
 	"text/template"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/nats-io/nats"
 	"github.com/sebest/logrusly"
 	"github.com/sohlich/etcd_discovery"
+	"github.com/sohlich/natsproxy"
 	"github.com/suricatatalk/gate/auth"
 	"github.com/suricatatalk/mail/client"
 	"github.com/yhat/wsutil"
@@ -143,16 +145,10 @@ func main() {
 	passManager = mgoAuthProvider
 
 	log.Infoln("Initializing reverse proxy")
-	wsproxy := &wsutil.ReverseProxy{
-		Director: schemeDirector("ws://"),
-	}
-	proxy := &httputil.ReverseProxy{
-		Director: schemeDirector("http"),
-	}
-	multiProxy := &MultiProxy{
-		wsproxy,
-		proxy,
-	}
+
+	proxyConn, _ := nats.Connect(nats.DefaultURL)
+	multiProxy := natsproxy.NewNatsProxy(proxyConn)
+	defer proxyConn.Close()
 
 	log.Infoln("Registering handlers")
 	//Handle login and register
