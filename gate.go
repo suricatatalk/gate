@@ -11,6 +11,8 @@ import (
 	"strings"
 	"text/template"
 
+	"golang.org/x/net/http2"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/nats-io/nats"
 	"github.com/sebest/logrusly"
@@ -67,25 +69,17 @@ type MgoConfig struct {
 	DB  string `default:"surikata"`
 }
 
-type EtcdConfig struct {
-	Endpoint string `default:"http://127.0.0.1:4001"`
-}
-
 type NatsConfig struct {
 	Endpoint string `default:"nats://localhost:4222"`
 }
 
 // loadConfiguration loads the configuration of application
-func loadConfiguration(app *AppConfig, mgo *MgoConfig, etcd *EtcdConfig, nats *NatsConfig) {
+func loadConfiguration(app *AppConfig, mgo *MgoConfig, nats *NatsConfig) {
 	err := envconfig.Process(ServiceName, app)
 	if err != nil {
 		log.Panicln(err)
 	}
 	err = envconfig.Process("mongodb", mgo)
-	if err != nil {
-		log.Panicln(err)
-	}
-	err = envconfig.Process("etcd", etcd)
 	if err != nil {
 		log.Panicln(err)
 	}
@@ -109,20 +103,11 @@ func main() {
 	// Load all configuration
 	appCfg = &AppConfig{}
 	mgoCfg := &MgoConfig{}
-	etcdCfg := &EtcdConfig{}
 	natsCfg := &NatsConfig{}
-	loadConfiguration(appCfg, mgoCfg, etcdCfg, natsCfg)
+	loadConfiguration(appCfg, mgoCfg, natsCfg)
 
 	// Service discovery config
 	log.Infoln("Loading configuration for ETCD client")
-	var registryErr error
-	registryConfig.InstanceName = appCfg.Name
-	registryConfig.BaseURL = fmt.Sprintf("%s:%s", appCfg.Host, appCfg.Port)
-	registryConfig.EtcdEndpoints = []string{etcdCfg.Endpoint}
-	registryClient, registryErr = discovery.New(registryConfig)
-	if registryErr != nil {
-		log.Panic(registryErr)
-	}
 
 	initMail()
 	var mailErr error
@@ -147,8 +132,11 @@ func main() {
 	log.Infoln("Initializing reverse proxy")
 
 	proxyConn, _ := nats.Connect(nats.DefaultURL)
-	multiProxy := natsproxy.NewNatsProxy(proxyConn)
+	multiProxy, err := natsproxy.NewNatsProxy(proxyConn)
 	defer proxyConn.Close()
+	if err != nil {
+		log.Panic("Cannot initialize NATS proxy")
+	}
 
 	log.Infoln("Registering handlers")
 	//Handle login and register
@@ -164,7 +152,12 @@ func main() {
 	//else handle via proxy
 	log.Infoln("Start listening on " + appCfg.Port)
 	mux.Handle("/", multiProxy)
-	serveErr := http.ListenAndServe(":"+appCfg.Port, mux)
+	srv := &http.Server{
+		Addr:    ":" + appCfg.Port,
+		Handler: mux,
+	}
+	http2.ConfigureServer(srv, nil)
+	serveErr := srv.ListenAndServe()
 	if serveErr != nil {
 		log.Errorln(serveErr)
 	}
