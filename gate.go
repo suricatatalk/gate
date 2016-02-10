@@ -151,7 +151,11 @@ func main() {
 	// mux.Get("/auth/{provider}", gothic.BeginAuthHandler)
 	//else handle via proxy
 	log.Infoln("Start listening on " + appCfg.Port)
-	mux.Handle("/", multiProxy)
+
+	mux.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
+		transformToken(req)
+		multiProxy.ServeHTTP(rw, req)
+	})
 	srv := &http.Server{
 		Addr:    ":" + appCfg.Port,
 		Handler: mux,
