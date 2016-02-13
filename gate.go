@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"regexp"
-	"strings"
 	"text/template"
 
 	"golang.org/x/net/http2"
@@ -16,11 +14,9 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/nats-io/nats"
 	"github.com/sebest/logrusly"
-	"github.com/sohlich/etcd_discovery"
 	"github.com/sohlich/natsproxy"
 	"github.com/suricatatalk/gate/auth"
 	"github.com/suricatatalk/mail/client"
-	"github.com/yhat/wsutil"
 
 	"github.com/kelseyhightower/envconfig"
 
@@ -40,15 +36,11 @@ const (
 var (
 	ErrNoServiceInUrl          = errors.New("No service definition in url")
 	ErrInavelidActivationToken = errors.New("Invalid activation token")
-	registryConfig             = discovery.EtcdRegistryConfig{
-		ServiceName: ServiceName,
-	}
-	registryClient     *discovery.EtcdReigistryClient
-	authProvider       auth.AuthProvider
-	passManager        auth.PasswordManager
-	actiavteUserRegex  = regexp.MustCompile(".*\\/activate\\/")
-	passwordResetRegex = regexp.MustCompile(".*\\/resetpassword\\/")
-	appCfg             *AppConfig
+	authProvider               auth.AuthProvider
+	passManager                auth.PasswordManager
+	actiavteUserRegex          = regexp.MustCompile(".*\\/activate\\/")
+	passwordResetRegex         = regexp.MustCompile(".*\\/resetpassword\\/")
+	appCfg                     *AppConfig
 )
 
 var (
@@ -184,58 +176,7 @@ func initMail() {
 }
 
 func configureSocial() {
-
-}
-
-type MultiProxy struct {
-	ws   *wsutil.ReverseProxy
-	http *httputil.ReverseProxy
-}
-
-func (m *MultiProxy) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
-	if wsutil.IsWebSocketRequest(r) {
-		m.ws.ServeHTTP(rw, r)
-	} else {
-		m.http.ServeHTTP(rw, r)
-	}
-}
-
-func schemeDirector(scheme string) func(req *http.Request) {
-	return func(req *http.Request) {
-		log.Infof("Getting request headers {}", req.Header)
-		transformToken(req)
-		req.URL.Scheme = scheme
-		path := req.URL.Path
-		sq, err := extractServiceName(path)
-		if err != nil {
-			return //TODO route on 404
-		}
-		servicePath, _ := registryClient.ServicesByName(sq.Service)
-		req.URL.Path = sq.Query
-		if len(servicePath) < 1 {
-			log.Errorf("No service by name %s found", sq.Service)
-			return
-		}
-		req.URL.Host = servicePath[0]
-		log.Printf("Output URL {}", req.URL)
-	}
-}
-
-type serviceAndQuery struct {
-	Service string
-	Query   string
-}
-
-func extractServiceName(path string) (serviceAndQuery, error) {
-	sq := serviceAndQuery{}
-	if len(path) > 2 {
-		splittedPath := strings.Split(path[1:], "/")
-		sq.Service = splittedPath[0]
-		sq.Query = strings.Replace(path[1:], splittedPath[0], "", 1)
-		return sq, nil
-	}
-
-	return sq, ErrNoServiceInUrl
+	//No Op
 }
 
 func transformToken(req *http.Request) {
