@@ -157,10 +157,18 @@ func loginHook(urlPath string, resp *natsproxy.Response) {
 	if err != nil {
 		log.Error(err)
 	}
-	token := storage.NewToken(user, jwtToken)
+	var token storage.Token
+	if token, err = storage.NewToken(user, jwtToken); err != nil {
+		log.Error(err)
+		return
+	}
+
 	err = tokenStorage.InsertToken(token)
 	if err != nil {
 		log.Error(err)
+		resp.StatusCode = http.StatusInternalServerError
+		resp.Header.Del(TokenHeader)
+		return
 	}
 	resp.Header.Set(TokenHeader, token.RefToken)
 }
