@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"strings"
 
 	"golang.org/x/net/http2"
 
@@ -117,7 +116,7 @@ func main() {
 	log.Infoln("Initializing NATS proxy")
 	proxyConn, _ := nats.Connect(nats.DefaultURL)
 	multiProxy, err := natsproxy.NewNatsProxy(proxyConn)
-	multiProxy.AddHook(loginHook)
+	multiProxy.AddHook("/login.*", loginHook)
 	defer proxyConn.Close()
 	if err != nil {
 		log.Panic("Cannot initialize NATS proxy")
@@ -146,10 +145,8 @@ func main() {
 	}
 }
 
-func loginHook(urlPath string, resp *natsproxy.Response) {
-	if !strings.Contains(urlPath, "/login") {
-		return
-	}
+func loginHook(resp *natsproxy.Response) {
+
 	userJSON := resp.Header.Get(TokenHeader)
 	user := auth.User{}
 	json.Unmarshal([]byte(userJSON), &user)
