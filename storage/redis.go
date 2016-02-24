@@ -29,8 +29,7 @@ func (r *RedisDataStorage) OpenSession() error {
 		Password: r.Password,
 		DB:       r.Database,
 	})
-
-	return nil
+	return r.client.Ping().Err()
 }
 
 func (r *RedisDataStorage) CloseSession() {
@@ -41,6 +40,7 @@ func (r *RedisDataStorage) CloseSession() {
 }
 
 func (r *RedisDataStorage) InsertToken(token Token) error {
+
 	return r.client.Set(token.RefToken, token, 0).Err()
 }
 
