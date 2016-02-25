@@ -28,7 +28,7 @@ install:
   - go get gopkg.in/mgo.v2/bson
   - go get github.com/satori/go.uuid
   - go get github.com/Sirupsen/logrus
-  - go get github.com/sohlich/natsproxy
+  - go get github.com/sohlich/nats-proxy
   - go get github.com/sebest/logrusly
   - go get github.com/suricatatalk/gate/jwt
   - go get github.com/suricatatalk/gate/storage
