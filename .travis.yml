@@ -35,3 +35,4 @@ install:
   - go get github.com/suricatatalk/guardian/auth
   - go get github.com/suricatatalk/mail/client
   - go get github.com/kelseyhightower/envconfig
+  - go get golang.org/x/net/http2
