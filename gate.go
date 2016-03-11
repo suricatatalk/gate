@@ -19,9 +19,7 @@ import (
 	"github.com/suricatatalk/mail/client"
 
 	"github.com/kelseyhightower/envconfig"
-
 	// "github.com/markbates/goth"
-
 	// "github.com/markbates/goth/providers/twitter"
 )
 
@@ -114,7 +112,7 @@ func main() {
 	}
 
 	log.Infoln("Initializing NATS proxy")
-	proxyConn, _ := nats.Connect(nats.DefaultURL)
+	proxyConn, _ := nats.Connect(natsCfg.Endpoint)
 	multiProxy, err := natsproxy.NewNatsProxy(proxyConn)
 	multiProxy.AddHook("/login.*", loginHook)
 	defer proxyConn.Close()
