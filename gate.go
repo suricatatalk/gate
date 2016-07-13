@@ -145,7 +145,7 @@ func main() {
 
 func loginHook(resp *natsproxy.Response) {
 
-	userJSON := resp.Header.Get(TokenHeader)
+	userJSON := resp.GetHeader().Get(TokenHeader)
 	user := auth.User{}
 	json.Unmarshal([]byte(userJSON), &user)
 	jwtToken, err := jwt.GenerateJwtToken(user)
@@ -162,10 +162,10 @@ func loginHook(resp *natsproxy.Response) {
 	if err != nil {
 		log.Error(err)
 		resp.StatusCode = http.StatusInternalServerError
-		resp.Header.Del(TokenHeader)
+		resp.GetHeader().Del(TokenHeader)
 		return
 	}
-	resp.Header.Set(TokenHeader, token.RefToken)
+	resp.GetHeader().Set(TokenHeader, token.RefToken)
 }
 
 func configureSocial() {
