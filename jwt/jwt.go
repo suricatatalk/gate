@@ -27,8 +27,9 @@ var (
 
 func GenerateJwtToken(user auth.User) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
-	token.Claims[JwtUserKey] = user
-	token.Claims[JwtExpKey] = time.Now().Add(time.Hour * 72).Unix()
+	claims := token.Claims.(jwt.MapClaims)
+	claims[JwtUserKey] = user
+	claims[JwtExpKey] = time.Now().Add(time.Hour * 72).Unix()
 	return token.SignedString([]byte(JwtSecret))
 }
 
@@ -36,7 +37,8 @@ func GenerateJwtToken(user auth.User) (string, error) {
 // and decode the JWT token
 func DecodeJwtToken(token string) (*auth.User, error) {
 	outToken, err := jwt.Parse(token, func(tkn *jwt.Token) (interface{}, error) {
-		expirate, ok := tkn.Claims[JwtExpKey].(float64)
+		claims := tkn.Claims.(jwt.MapClaims)
+		expirate, ok := claims[JwtExpKey].(float64)
 		if !ok {
 			return nil, ErrCannotRetrieveExpiration
 		}
@@ -46,7 +48,8 @@ func DecodeJwtToken(token string) (*auth.User, error) {
 		return []byte(JwtSecret), nil
 	})
 	if err == nil && outToken.Valid {
-		tokenMap := outToken.Claims[JwtUserKey].(map[string]interface{})
+		tknMap := outToken.Claims.(jwt.MapClaims)
+		tokenMap := tknMap[JwtUserKey].(map[string]interface{})
 		user, err := auth.NewUser(tokenMap)
 		return user, err
 	}

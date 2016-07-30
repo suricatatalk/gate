@@ -78,13 +78,17 @@ func loadConfiguration(app *AppConfig, rdis *RedisConfig, nats *NatsConfig) {
 		log.Panicln(err)
 	}
 	if len(os.Getenv(KeyLogly)) > 0 {
-		log.Println("Loading logly token %s", os.Getenv(KeyLogly))
+		log.Printf("Loading logly token %s \n", os.Getenv(KeyLogly))
 		hook := logrusly.NewLogglyHook(os.Getenv(KeyLogly),
 			app.Host,
 			log.InfoLevel,
 			app.Name)
 		log.AddHook(hook)
 	}
+
+	log.Println("#### LOADED CONFIG #####")
+	log.Printf("REDIS_URI: %s \n", rdis.URI)
+	log.Printf("NATS_ENDPOINT: %s \n", nats.Endpoint)
 }
 
 func main() {
@@ -95,8 +99,6 @@ func main() {
 	rdisCfg := &RedisConfig{}
 	natsCfg := &NatsConfig{}
 	loadConfiguration(appCfg, rdisCfg, natsCfg)
-
-	// Service discovery config
 
 	//Mongo configuration
 	log.Infoln("Loading configuration of Redis")
